@@ -1,0 +1,366 @@
+---
+title: "PSoup_Data_Set"
+author: "Christos Mitsanis"
+date: "2025-02-17"
+output: html_document
+---
+
+```{r}
+
+# Set the CRAN mirror so that package installations know where to download from
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Load the AlphaSimR package (install it first if not already installed)
+if (!requireNamespace("AlphaSimR", quietly = TRUE)) {
+  install.packages("AlphaSimR")
+}
+library(AlphaSimR)
+
+```
+
+# PSoup genomic dataset
+
+To create this genomic data set we are going to use the package AlphaSimR. AlphaSimR is a package that allows us to create genomes and do breeding simulations.
+
+## 1. Create a founder Population
+
+In this step we define the simulation parameters and generate the founder population. Here, we'll simulate 1000 individuals across 5 chromosomes, with 1,000 segregating sites per chromosome. It uses Coalescent Simulator (MaCS) to generatee biologically realistic Biallelic sequences (Chen et al., 2009) Predifined maize or wheat. I putted generic
+
+```{r}
+library(AlphaSimR)
+# Simulation parameters
+nInd <- 8000      # Number of individuals
+nChr <- 5       # Number of chromosomes
+segSites <- 260 # Number of segregating sites per chromosome
+
+
+# Create the founder population using runMacs
+founderGenomes <- runMacs(nInd = nInd, nChr = nChr, segSites = segSites, inbred = FALSE)
+
+# Display summary of the founder population
+founderGenomes
+
+```
+
+```{r}
+library(AlphaSimR)
+SP= SimParam$new(founderGenomes)
+
+SP
+```
+
+```{r}
+
+basePop = newPop(founderGenomes)
+basePop
+help("newPop")
+
+
+```
+
+## 2. Crete a simulation parameter object
+
+The next step is to create a simulation parameter object—commonly referred to as SP—using AlphaSimR’s SimParam class. This object stores all the key parameters for your simulation, such as trait definitions, heritability, genetic architecture, and other breeding design details. Essentially, SP acts as a container that tells the simulation how to model the genetic and phenotypic processes in your population.
+
+Bilogical effect for the traits is Additive We can add AD,AE,AG,ADE,ADG,AEG, and ADEG A=additive, D=Dominance, E=Epistatic, G=genotypex environment (Gaynor et al., 2021)
+
+```{r}
+# Define trait names
+trait_names_raw <- c(
+  "SL_n", "BRC1_2_n", "CK_n", "Aux_n", "ABA_n",
+  "PIN_1_3_4_7_n", "Aux_Bud_n", "SUC_n", "GA_n", "Decap_signal_n",
+  "CXE_n", "SMXL6_7_8_n", "FHY3_FAR1_n", "SPL9_15_n", "MAX2_n",
+  "D14_n", "D27_n", "MAX3_n", "MAX4_n", "MAX1_n",
+  "LBO_n", "CLAMT_n", "PhyB_n", "PIFs_n", "HB21_40_53_n",
+  "NCED3_n"
+)
+# Remove the trailing "_n" from each name
+trait_names <-(trait_names_raw)
+n_traits <- length(trait_names)  # Should be 26
+
+# Create the simulation parameter object (assuming 'founderPop' has been created)
+SP <- SimParam$new(founderGenomes)
+
+# For each trait, add an additive trait with 20 QTLs (loci)
+for(i in 1:n_traits){
+  SP$addTraitA(nQtlPerChr = 20, mean = 1.2, var = 0.5)
+}
+# QUESTION: waht the mean should be in this. We have relative values
+
+# Assign the cleaned-up trait names to the simulation parameters
+SP$traitNames <- trait_names
+
+# Display the assigned trait names
+SP$traits
+
+
+```
+
+## 3. Create base population
+
+```{r}
+
+basePop = newPop(founderGenomes)
+basePop [1:10,1:10]
+
+
+
+
+
+```
+
+```{r}
+basePopHaplo = pullSegSiteHaplo(basePop)
+basePopHaplo[1:10, 1:10]
+
+
+GenXe = pullSegSiteGeno(basePop)
+
+GenXe [1:10, 1:10]
+
+#basePopD = pullSnpGeno(basePop , snpChip = 1)
+#basePopD
+
+```
+
+## Genetic Vaues
+
+```{r}
+# Genetic values of individuals
+basePop@gv[1:20,1:20]
+#basePop@gv
+```
+## I save them as a genotype to run them in PSoup
+
+```{r}
+
+# Check current working directory
+print(getwd())
+
+# Extract the genetic values from basePop
+genetic_values <- basePop@gv
+
+# Convert to a data frame (if it's not already)
+genetic_values_df <- as.data.frame(genetic_values)
+
+# Replace negative values with 0 in the dataframe
+genetic_values_df[genetic_values_df < 0] <- 0
+
+# Write the data frame to a CSV file (adjust the path as needed)
+write.csv(genetic_values_df, "genotypes_8000.csv", row.names = FALSE)
+
+```
+## A histogram of the genotypic values
+
+```{r}
+# Plot histogram of genotype values
+gv(basePop)
+hist(gv(basePop))
+
+```
+## With these genotyping values we run PSoup.
+
+
+
+## Set Pheno
+
+
+```{r}
+
+# Read the CSV file and set the first column as row names (if it contains row labels)
+pheno_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/8000.csv",
+                     header = TRUE, row.names = 1)
+
+# Convert the data frame to a matrix
+pheno_matrix <- as.matrix(pheno_df)
+
+# Optionally, inspect the matrix to check its form
+print(pheno_matrix)
+
+# Overwrite the phenotypes in basePop with the matrix
+basePop@pheno <- pheno_matrix
+pheno <- pheno_matrix
+pheno
+
+```
+
+
+```{r}
+# Plot histogram of phenotype values
+hist(pheno, xlab = "Phenotype value", main = "")
+
+help(setPheno)
+
+```
+
+```{r}
+# Calculate variance of phenotype values in this population
+# (this is phenotypic variance in this population)
+var(pheno)
+
+```
+
+```{r}
+# Relationship between genetic values and phenotype values
+plot(x = gv(basePop), y = pheno(basePop),
+     xlab = "Genetic value", ylab = "Phenotype value")
+```
+
+
+```{r}
+
+plot(x = gv(basePop)[, "SL_n"], 
+     y = pheno(basePop)[, "SL_n"],
+     xlab = "Genetic value (SL_n)", 
+     ylab = "Phenotype value (SL_n)")
+
+
+```
+
+
+```{r}
+
+plot(x = gv(basePop)[, "CK_n"], 
+     y = pheno(basePop)[, "CK_n"],
+     xlab = "Genetic value (CK_n)", 
+     ylab = "Phenotype value (CK_n)")
+
+```
+
+```{r}
+
+plot(x = gv(basePop)[, "CK_n"], 
+     y = pheno(basePop)[, "CK_n"],
+     xlab = "Genetic value (CK_n)", 
+     ylab = "Phenotype value (CK_n)")
+
+```
+
+```{r}
+# Correlation between genetic and phenotype values
+cor(gv(basePop), pheno(basePop))
+
+#should I give them corelation.Overwrite the phenotyping values? I can make sure to divide and do back enginnering to have this heritability. 
+```
+
+```{r}
+pheno(setPheno(basePop, h2 = 0.5))[1:5]
+```
+
+## Quantitative genetics
+
+```{r}
+pheno(setPheno(basePop, h2 = 0.5))[1:5]
+```
+
+```{r}
+pheno(setPheno(basePop, h2 = 0.5))[1:5]
+```
+
+```{r}
+# Calculate heritability using the standard R functionality
+#gv(basePop)
+
+#VE <- rep(0.07, length(n_traits))
+#er = var(gv(basePop)) / (var(pheno(basePop) )
+h2 = var(gv(basePop)) / (var(pheno(basePop)) + VE)
+#h2
+
+# Create a diagonal matrix from h2:
+h2_diag <- diag(h2)
+
+# View the resulting matrix:
+print(h2_diag)
+
+```
+
+$$
+\bar{x}_i = \frac{x_{i1} + x_{i2} + x_{i3}}{3}
+$$
+
+If there are $N$ individuals, the overall mean of these row means is:
+
+$$
+\overline{\bar{x}} = \frac{1}{N} \sum_{i=1}^{N} \bar{x}_i
+$$
+
+The sample variance of the row means, which is used as the environmental variance $V_E$, is then given by:
+
+$$
+V_E = \frac{1}{N-1} \sum_{i=1}^{N} \left( \bar{x}_i - \overline{\bar{x}} \right)^2
+$$
+
+```{r}
+data_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Results_Sobol_8000.csv",
+                    header = TRUE)
+
+# Then select the columns of interest:
+selected_columns <- data_df[, c("Hormones.SUC", "Hormones.Low_R_FR", "Hormones.High_R_FR")]
+
+# Compute the row-wise means:
+individual_means <- rowMeans(selected_columns)
+
+# Calculate the variance of these means (VE):
+VE <- var(individual_means)
+
+print(VE)
+
+
+
+
+
+
+
+
+
+
+```
+
+```{r}
+# Read the CSV file with header
+data_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Pheno_Values_1.csv",
+                    header = TRUE)
+
+# Print the first few rows of the data frame
+cat("Full Data (first 6 rows):\n")
+print(head(data_df))
+
+# Select the columns of interest:
+selected_columns <- data_df[, c("Hormones.SUC", "Hormones.Low_R_FR", "Hormones.High_R_FR")]
+
+# Print the selected columns (first few rows):
+cat("\nSelected Columns (first 6 rows):\n")
+print(head(selected_columns))
+
+# Compute the row-wise means for each individual:
+individual_means <- rowMeans(selected_columns)
+individual_means
+
+# Print the computed row means (first few individuals):
+cat("\nRow-wise Means (first 6 individuals):\n")
+print(head(individual_means))
+
+# Calculate the variance of these means (VE):
+VE <- var(individual_means)
+
+# Print the final VE:
+cat("\nCalculated Variance (VE):\n")
+print(VE)
+
+
+
+```
+
+```{r}
+
+vignette( package = "AlphaSimR" , )
+
+```
+
+```{r}
+
+help("genParam")
+
+varA(basePop)
+
+```
