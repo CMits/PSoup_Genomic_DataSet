@@ -1,0 +1,262 @@
+---
+title: "PSoup-AlphaSimR"
+author: "Christos Mitsanis"
+date: "2025-03-03"
+output: html_document
+---
+
+1.Step Install and load the AlphaSimR package. 
+
+```{r}
+
+# Set the CRAN mirror so that package installations know where to download from
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Load the AlphaSimR package (install it first if not already installed)
+if (!requireNamespace("AlphaSimR", quietly = TRUE)) {
+  install.packages("AlphaSimR")
+}
+library(AlphaSimR)
+
+```
+# PSoup genomic dataset
+
+To create this genomic data set we are going to use the package AlphaSimR. AlphaSimR is a package that allows us to create genomes and do breeding simulations.
+
+## 1. Create a founder Population
+
+In this step we define the simulation parameters and generate the founder population. Here, we'll simulate 1000 individuals across 5 chromosomes, with 1,000 segregating sites per chromosome. It uses Coalescent Simulator (MaCS) to generatee biologically realistic Biallelic sequences (Chen et al., 2009) Predefined maize or wheat. I putted generic.
+
+```{r}
+library(AlphaSimR)
+# Simulation parameters
+nInd <- 8000      # Number of individuals
+nChr <- 5       # Number of chromosomes
+segSites <- 260 # Number of segregating sites per chromosome
+
+
+# Create the founder population using runMacs
+founderGenomes <- runMacs(nInd = nInd, nChr = nChr, segSites = segSites, inbred = FALSE)
+
+# Display summary of the founder population
+founderGenomes
+
+```
+
+#Haplotypes
+
+```{r}
+basePopHaplo = pullSegSiteHaplo(basePop)
+basePopHaplo[1:10, 1:10]
+
+
+GenXe = pullSegSiteGeno(basePop)
+
+GenXe [1:10, 1:10]
+
+#basePopD = pullSnpGeno(basePop , snpChip = 1)
+#basePopD
+```
+
+#PLot the genetic Values
+
+```{r}
+# Plot histogram of genotype values
+gv(basePop)
+hist(gv(basePop))
+
+```
+
+# Preload the Genetic values
+
+```{r}
+# Load the CSV file into a data frame
+
+genetic_values_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/genotypes_8000.csv", header = TRUE)
+
+# Optionally, inspect the data frame
+#str(genetic_values_df)
+
+# This ensures that each column is numeric
+genetic_values_matrix <- as.matrix(sapply(genetic_values_df, as.numeric))
+
+# Assign the numeric matrix to the gv slot of basePop
+basePop@gv <- genetic_values_matrix
+
+
+```
+
+
+```{r}
+# Plot histogram of genotype values
+gv(basePop)
+hist(gv(basePop))
+
+```
+
+## Load the Phenotypes coming from PSoup
+
+```{r}
+
+# Read the CSV file and set the first column as row names (if it contains row labels)
+pheno_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/8000.csv",
+                     header = TRUE, row.names = 1)
+
+# Convert the data frame to a matrix
+pheno_matrix <- as.matrix(pheno_df)
+
+# Optionally, inspect the matrix to check its form
+print(pheno_matrix)
+
+# Overwrite the phenotypes in basePop with the matrix
+basePop@pheno <- pheno_matrix
+pheno <- pheno_matrix
+pheno
+
+```
+
+```{r}
+# Plot histogram of genotype values
+#gv(basePop)
+# Only keep pheno values between 0 and 20
+pheno_sub <- pheno[pheno >= 0 & pheno <= 5]
+
+# Now plot histogram
+hist(pheno_sub,
+     breaks = seq(0, 5, by = 0.1),
+     main = "Histogram of pheno",
+     xlab = "pheno")
+
+```
+
+```{r}
+# Calculate variance of phenotype values in this population
+# (this is phenotypic variance in this population)
+var(pheno)
+
+```
+
+```{r}
+# Relationship between genetic values and phenotype values
+plot(x = gv(basePop), y = pheno(basePop),
+     xlab = "Genetic value", ylab = "Phenotype value")
+```
+
+
+```{r}
+# Extract the SL_n phenotypic values
+pheno_SL_n <- pheno(basePop)[, "SL_n"]
+
+# Find and print the maximum SL_n value (ignoring any NA values)
+max_SL <- max(pheno_SL_n, na.rm = TRUE)
+print(paste("Maximum SL_n value:", max_SL))
+
+# Get the row index with the maximum SL_n value
+max_index <- which.max(pheno_SL_n)
+
+# Print the entire row corresponding to the maximum SL_n value
+print("Row with the highest SL_n value:")
+print(pheno(basePop)[max_index, ])
+```
+
+```{r}
+
+# Load necessary library
+library(plotly)
+
+# --- Load phenotype data from CSV ---
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Sustained Growth.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+phenotype <- phenotype_data[ , "Sustained.Growth"]  # adjust the column name if needed
+
+# --- Extract genetic values ---
+# Get the complete genetic values matrix from basePop (all 26 traits)
+genetic_matrix <- gv(basePop)
+
+# Check that the row counts match between genetic_matrix and phenotype
+if(nrow(genetic_matrix) != length(phenotype)) {
+  stop("Mismatch in row counts between genetic values and phenotype data!")
+}
+
+# --- Prepare tooltip text (same for all plots) ---
+# This creates a tooltip string for each row containing all trait values
+tooltip <- apply(genetic_matrix, 1, function(row) {
+  paste(names(row), round(row, 3), sep=": ", collapse="<br>")
+})
+
+# --- Create interactive plots for all genes ---
+# We'll store the plots in a list, one plot per gene column.
+plots <- list()
+for (gene in colnames(genetic_matrix)) {
+  # Extract the genetic values for the current gene
+  genetic_values <- genetic_matrix[, gene]
+  
+  # Create a data frame for plotting
+  plot_data <- data.frame(
+    GeneticValue = genetic_values,
+    Phenotype = phenotype,
+    Tooltip = tooltip,
+    stringsAsFactors = FALSE
+  )
+  
+  # Create the interactive plot using plotly
+  p <- plot_ly(plot_data,
+               x = ~GeneticValue,
+               y = ~Phenotype,
+               type = 'scatter',
+               mode = 'markers',
+               text = ~Tooltip,    # Tooltip shows all row values
+               hoverinfo = 'text'  # Only show the text on hover
+  ) %>%
+    layout(title = paste( gene, "vs Phenotype (Sustained Growth)"),
+           xaxis = list(title = paste("Genetic Value (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)"))
+  
+  # Store the plot in the list
+  plots[[gene]] <- p
+}
+
+# Display all plots (each element of 'plots' is an interactive plot)
+plots
+
+```
+
+
+## Calculate the environmental variance
+```{r}
+data_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Results_Sobol_8000.csv",
+                    header = TRUE)
+
+# Then select the columns of interest:
+selected_columns <- data_df[, c("Hormones.SUC", "Hormones.Low_R_FR", "Hormones.High_R_FR")]
+
+# Compute the row-wise means:
+individual_means <- rowMeans(selected_columns)
+
+# Calculate the variance of these means (VE):
+VE <- var(individual_means)
+
+print(VE)
+
+```
+
+## Heritability for the 26 Traits
+
+```{r}
+# Calculate heritability using the standard R functionality
+#gv(basePop)
+
+#VE <- rep(0.07, length(n_traits))
+#er = var(gv(basePop)) / (var(pheno(basePop) )
+h2 = var(gv(basePop)) / (var(pheno(basePop)) + VE)
+#h2
+
+# Create a diagonal matrix from h2:
+h2_diag <- diag(h2)
+
+# View the resulting matrix:
+print(h2_diag)
+
+```
+
+

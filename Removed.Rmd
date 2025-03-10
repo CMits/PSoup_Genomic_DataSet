@@ -1,0 +1,257 @@
+---
+title: "Removed"
+author: "Christos Mitsanis"
+date: "2025-03-07"
+output: html_document
+---
+
+```{r}
+# Load necessary library
+library(plotly)
+
+# --- Load phenotype data from CSV ---
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Sustained Growth.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+
+# Adjust the column name if necessary (here assumed to be "Sustained.Growth")
+phenotype <- phenotype_data[ , "Sustained.Growth"]
+
+# --- Extract genetic values ---
+# Get the complete genetic values matrix from basePop (all 26 traits)
+genetic_matrix <- gv(basePop)
+
+# Extract the genetic values for the trait you want to plot on the x-axis (here "CK_n")
+genetic_values <- genetic_matrix[, "SL_n"]
+
+# Ensure the number of rows matches between genetic values and phenotype
+if(length(genetic_values) != length(phenotype)) {
+  stop("Mismatch in row counts between genetic values and phenotype data!")
+}
+
+# --- Prepare tooltip text ---
+# Create a tooltip that shows all trait values (including the one used for the x-axis)
+tooltip <- apply(genetic_matrix, 1, function(row) {
+  paste(names(row), round(row, 3), sep=": ", collapse="<br>")
+})
+
+# --- Combine into a data frame for plotting ---
+plot_data <- data.frame(
+  GeneticValue = genetic_values,
+  Phenotype = phenotype,
+  Tooltip = tooltip,
+  stringsAsFactors = FALSE
+)
+
+# --- Create interactive scatter plot with plotly ---
+p <- plot_ly(plot_data,
+             x = ~GeneticValue,
+             y = ~Phenotype,
+             type = 'scatter',
+             mode = 'markers',
+             text = ~Tooltip,    # Tooltip shows all row values
+             hoverinfo = 'text'  # Only show the text on hover
+)
+
+# --- Layout adjustments ---
+p <- p %>% layout(title = "Interactive Plot: Genetic vs Phenotype (Sustained Growth)",
+                  xaxis = list(title = "Genetic Value (SL_n)"),
+                  yaxis = list(title = "Phenotype (Sustained Growth)"))
+
+# Display the interactive plot
+p
+
+```
+
+
+```{r}
+
+# Load necessary libraries
+library(plotly)
+library(htmltools)
+
+# --- Load phenotype data from CSV ---
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Sustained Growth.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+phenotype <- phenotype_data[ , "Sustained.Growth"]  # adjust if the column name is different
+
+# --- Extract genetic values ---
+# Get the complete genetic values matrix from basePop (all 26 traits)
+genetic_matrix <- gv(basePop)
+
+# Check that the row counts match between genetic_matrix and phenotype
+if(nrow(genetic_matrix) != length(phenotype)) {
+  stop("Mismatch in row counts between genetic values and phenotype data!")
+}
+
+# --- Prepare tooltip text (same for all plots) ---
+tooltip <- apply(genetic_matrix, 1, function(row) {
+  paste(names(row), round(row, 3), sep=": ", collapse="<br>")
+})
+
+# --- Create interactive plots for all genes ---
+plots <- list()
+for (gene in colnames(genetic_matrix)) {
+  # Extract the genetic values for the current gene
+  genetic_values <- genetic_matrix[, gene]
+  
+  # Create a data frame for plotting
+  plot_data <- data.frame(
+    GeneticValue = genetic_values,
+    Phenotype = phenotype,
+    Tooltip = tooltip,
+    stringsAsFactors = FALSE
+  )
+  
+  # Create the interactive plot using plotly
+  p <- plot_ly(plot_data,
+               x = ~GeneticValue,
+               y = ~Phenotype,
+               type = 'scatter',
+               mode = 'markers',
+               text = ~Tooltip,
+               hoverinfo = 'text'
+  ) %>%
+    layout(title = paste("Interactive Plot:", gene, "vs Phenotype (Sustained Growth)"),
+           xaxis = list(title = paste("Genetic Value (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)"))
+  
+  plots[[gene]] <- p
+}
+
+# --- Wrap each plot with a header using htmltools ---
+# This creates a tagList with a header for each gene, so the output HTML shows clear names.
+html_plots <- tagList(
+  lapply(names(plots), function(gene) {
+    tagList(
+      tags$h3(gene),  # Gene name header
+      plots[[gene]]
+    )
+  })
+)
+
+# Print or view the combined html widget (for example, in RStudio viewer or browser)
+html_plots
+
+
+
+
+
+
+
+```
+
+
+
+```{r}
+# Load necessary library
+library(plotly)
+
+# --- Load phenotype data from CSV ---
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Sustained Growth.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+
+# Adjust the column name if necessary (here assumed to be "Sustained.Growth")
+phenotype <- phenotype_data[ , "Sustained.Growth"]
+
+# --- Extract genetic values ---
+# Get the complete genetic values matrix from basePop (all 26 traits)
+genetic_matrix <- gv(basePop)
+
+# Extract the genetic values for the trait you want to plot on the x-axis (here "CK_n")
+genetic_values <- genetic_matrix[, "CK_n"]
+
+# Ensure the number of rows matches between genetic values and phenotype
+if(length(genetic_values) != length(phenotype)) {
+  stop("Mismatch in row counts between genetic values and phenotype data!")
+}
+
+# --- Prepare tooltip text ---
+# Create a tooltip that shows all trait values (including the one used for the x-axis)
+tooltip <- apply(genetic_matrix, 1, function(row) {
+  paste(names(row), round(row, 3), sep=": ", collapse="<br>")
+})
+
+# --- Combine into a data frame for plotting ---
+plot_data <- data.frame(
+  GeneticValue = genetic_values,
+  Phenotype = phenotype,
+  Tooltip = tooltip,
+  stringsAsFactors = FALSE
+)
+
+# --- Create interactive scatter plot with plotly ---
+p <- plot_ly(plot_data,
+             x = ~GeneticValue,
+             y = ~Phenotype,
+             type = 'scatter',
+             mode = 'markers',
+             text = ~Tooltip,    # Tooltip shows all row values
+             hoverinfo = 'text'  # Only show the text on hover
+)
+
+# --- Layout adjustments ---
+p <- p %>% layout(title = "Interactive Plot: Genetic vs Phenotype (Sustained Growth)",
+                  xaxis = list(title = "Genetic Value (CK_n)"),
+                  yaxis = list(title = "Phenotype (Sustained Growth)"))
+
+# Display the interactive plot
+p
+
+```
+
+
+```{r}
+# Load the phenotype data from the CSV file
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/data/Sustained Growth.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+
+# Extract the Sustained Growth column (phenotype)
+# Note: if the column name contains spaces, it is good practice to use backticks.
+phenotype <- phenotype_data[ , "Sustained.Growth"]  # if your CSV header has a dot instead of space,
+# or if it literally is "Sustained Growth", use:
+# phenotype <- phenotype_data[ , "Sustained Growth"]
+
+# Extract the genetic values from the gv slot of basePop.
+# Adjust the column name below if the genetic values for the gene are stored under a different name.
+genetic_values <- gv(basePop)[, "BRC1_2_n"]  # or "Sustained Growth" if that is the actual column name
+
+# Check if the lengths match
+if(length(genetic_values) != length(phenotype)) {
+  stop("The number of rows in the genetic values and phenotype data do not match!")
+}
+
+# Create the plot
+plot(x = genetic_values,
+     y = phenotype,
+     xlab = "Genetic Value (BRC1_2)",
+     ylab = "Phenotype (Sustained Growth)",
+     #main = "Genetic vs Phenotype for Sustained Growth")
+
+```
+
+
+```{r}
+# Extract SL_n values from the phenotypic data
+pheno_BRC1_2_n <- pheno(basePop)[, "BRC1_2_n"]
+
+# Plot genetic vs phenotypic values with the y-axis limited to the maximum pheno value
+plot(x = gv(basePop)[, "BRC1_2_n"],
+     y = pheno_BRC1_2_n,
+     xlab = "Genetic value (BRC1_2_n)",
+     ylab = "Phenotype value (BRC1_2_n)",
+     ylim = c(0, max(pheno_BRC1_2_n, na.rm = TRUE)))
+
+```
+
+```{r}
+# Extract SL_n values from the phenotypic data
+pheno_SL_n <- pheno(basePop)[, "SL_n"]
+
+# Plot genetic vs phenotypic values with the y-axis limited to the maximum pheno value
+plot(x = gv(basePop)[, "SL_n"],
+     y = pheno_SL_n,
+     xlab = "Genetic value (SL_n)",
+     ylab = "Phenotype value (SL_n)",
+     ylim = c(0, max(pheno_SL_n, na.rm = TRUE)))
+
+```

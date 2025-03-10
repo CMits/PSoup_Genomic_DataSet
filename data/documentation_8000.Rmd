@@ -150,7 +150,9 @@ genetic_values_df[genetic_values_df < 0] <- 0
 write.csv(genetic_values_df, "genotypes_8000.csv", row.names = FALSE)
 
 ```
-## A histogram of the genotypic values
+
+
+
 
 ```{r}
 # Plot histogram of genotype values
