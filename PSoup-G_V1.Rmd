@@ -1,0 +1,1541 @@
+---
+title: "PSoup-G"
+author: "Christos Mitsanis"
+date: "2025-03-11"
+output: html_document
+---
+
+# PSoup-Gene
+
+## General framework
+
+![General Framework of the Dataset](Pictur.jpg){width="100%"}
+
+# About the network that we used
+
+![General Framework of the Dataset](Benchmark_Model_1.jpg)
+
+### The model achieved 73% accuracy when tested on 135 unseen scenarios. These scenarios involved gene expression and bud outgrowth, which were not used during training.
+
+# PSoup genomic dataset
+
+To create this genomic data set we used the package AlphaSimR. AlphaSimR is a package that allows us to create genomes and do breeding simulations.
+
+# First step
+
+```{r}
+
+# Set the CRAN mirror so that package installations know where to download from
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Load the AlphaSimR package (install it first if not already installed)
+if (!requireNamespace("AlphaSimR", quietly = TRUE)) {
+  install.packages("AlphaSimR")
+}
+library(AlphaSimR)
+
+```
+
+# PSoup genomic dataset
+
+To create this genomic data set we are going to use the package AlphaSimR. AlphaSimR is a package that allows us to create genomes and do breeding simulations.
+
+## 1. Create a founder Population
+
+In this step we define the simulation parameters and generate the founder population. Here, we'll simulate 1000 individuals across 5 chromosomes, with 1,000 segregating sites per chromosome. It uses Coalescent Simulator (MaCS) to generatee biologically realistic Biallelic sequences (Chen et al., 2009) Predefined maize or wheat. I putted generic.
+
+```{r}
+library(AlphaSimR)
+# Simulation parameters
+nInd <- 1000      # Number of individuals
+nChr <- 5       # Number of chromosomes
+segSites <- 270 # Number of segregating sites per chromosome
+
+
+# Create the founder population using runMacs
+founderGenomes <- runMacs(nInd = nInd, nChr = nChr, segSites = segSites, inbred = FALSE, species = "GENERIC")
+
+# Display summary of the founder population
+founderGenomes
+
+
+# Question about SNPs
+```
+
+## Population composition
+
+Ploidy: 2 Individuals: 1000 Chromosomes: 5 Loci: 1350
+
+## Define intermediate traits all the hormones in the model. I assumed that they have additive effect
+
+```{r}
+# Define trait names
+trait_names_raw <- c(
+  "SL_n", "BRC1_2_n", "CK_n", "Aux_n", "ABA_n",
+  "PIN_1_3_4_7_n", "Aux_Bud_n", "SUC_n", "GA_n", "Decap_signal_n",
+  "CXE_n", "SMXL6_7_8_n", "FHY3_FAR1_n", "SPL9_15_n", "MAX2_n",
+  "D14_n", "D27_n", "MAX3_n", "MAX4_n", "MAX1_n",
+  "LBO_n", "CLAMT_n", "PhyB_n", "PIFs_n", "HB21_40_53_n",
+  "NCED3_n," , "Perception_SL_n"
+)
+
+trait_names <-(trait_names_raw)
+n_traits <- length(trait_names)  
+
+# Create the simulation parameter object
+SP <- SimParam$new(founderGenomes)
+
+# For each trait, add an additive trait with 20 QTLs (loci)
+for(i in 1:n_traits){
+  SP$addTraitA(nQtlPerChr = 10, mean = 1.2, var = 0.4)
+}
+
+for(i in 1:n_traits){
+  SP$addSnpChip(nSnpPerChr = 10)
+}
+  
+
+# QUESTION: What the mean should be in this. We have relative values
+
+# Assign the cleaned-up trait names to the simulation parameters
+SP$traitNames <- trait_names
+
+# Display the assigned trait names
+SP$traits
+
+
+```
+
+```{r}
+
+basePop = newPop(founderGenomes)
+
+basePop 
+
+
+```
+
+#Haplotypes
+
+```{r}
+basePopHaplo = pullSegSiteHaplo(basePop)
+
+basePopHaplo[1:10, 1:10]
+
+GenXe = pullSegSiteGeno(basePop)
+
+GenXe [1:10, 1:10]
+
+SNP = pullSnpGeno(pop = basePop, snpChip =1)
+SNP
+```
+
+```{r}
+getQtlMap(trait = 1, simParam = SP)
+```
+
+
+```{r}
+# Plot histogram of genotype values
+gv(basePop)
+hist(gv(basePop))
+
+
+```
+
+### Sigmoidal Transformation Explanation
+
+The **sigmoid function** is a mathematical function that maps input values into a bounded range. The most common form of the sigmoid function is:
+
+$$
+S(x) = \frac{1}{1 + e^{-x}}
+$$
+
+This function produces an **S-shaped curve**, with values ranging between **0 and 1**. It is widely used in machine learning, neural networks, and normalization techniques.
+
+------------------------------------------------------------------------
+
+### Modified Sigmoid Transformation for Normalization
+
+In our transformation, the sigmoid function is modified to scale the data while ensuring that the transformed values range from **0 to 2**. The equation used is:
+
+$$
+S(x) = \frac{2}{1 + e^{-\frac{x - \mu}{\sigma}}}
+$$
+
+where: $x$ is the original value. $\mu$ is the **mean** of the data. $\sigma$ is the **standard deviation** of the data. This transformation **centers the data around the mean** and **scales it using the standard deviation**.
+
+------------------------------------------------------------------------
+
+### How This Works:
+
+1.  **Standardization**: The term $\frac{x - \mu}{\sigma}$ standardizes the input values, making them unitless.
+2.  **Sigmoid Scaling**: The **sigmoid function** is applied to map values between 0 and 1.
+3.  **Rescaling to 0-2**: Multiplying by **2** ensures that the final range of values falls between **0 and 2**.
+
+------------------------------------------------------------------------
+
+### Why Use This Transformation?
+
+-   **Smooths extreme values** without sharp cut-offs.
+-   **Keeps the transformed data within a bounded range**.
+-   **Preserves relative differences between values** while normalizing.
+
+This transformation helps retain the original data's structure while ensuring all values are mapped within the required range.
+
+------------------------------------------------------------------------
+
+### Introducing a Steepness Parameter
+
+I introduce a steepness parameter $\alpha$ to control how sharp the transformation is. A common generalization of the sigmoid function is:
+
+$$
+S(x) = \frac{2}{1 + e^{-\alpha \frac{x - \mu}{\sigma}}}
+$$
+
+where:
+
+-   $\alpha$ is a scaling factor that controls the **steepness** of the curve.
+-   $\mu$ is the **mean** of the data.
+-   $\sigma$ is the **standard deviation** of the data.
+
+Increasing $\alpha$ makes the function **sharper**, while decreasing it makes it **smoother**.
+
+# Sigmodial transformation
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+
+# If you're in an interactive notebook (e.g., Jupyter or R Markdown), you can adjust
+# the plotting area to prevent 'figure margins too large' errors.
+options(repr.plot.width=7, repr.plot.height=5)
+
+#######################################
+# Sigmoid 0-2 Transformation Functions
+#######################################
+
+# 1) Standard sigmoid transformation (0 -> 2)
+sigmoid_0_2 <- function(x) {
+  mean_x <- mean(x, na.rm = TRUE)
+  std_x <- sd(x, na.rm = TRUE)
+  cat("Mean for column:", mean_x, "Standard deviation for column:", std_x, "\n")
+  # compute logistic value
+  val <- 2 / (1 + exp(-(x - mean_x) / std_x))
+  # clamp to [0,2] just in case of floating point issues
+  val[val < 0] <- 0
+  val[val > 2] <- 2
+  return(val)
+}
+
+# 2) Simple sigmoid function mapping to [0,2]
+simple_sigmoid <- function(x) {
+  val <- 2 / (1 + exp(-x))
+  # clamp to [0,2]
+  val[val < 0] <- 0
+  val[val > 2] <- 2
+  return(val)
+}
+
+# 3) Sigmoid with tunable steepness parameter, also clamped to [0,2]
+scaled_sigmoid <- function(x, alpha) {
+  mean_x <- mean(x, na.rm = TRUE)
+  std_x <- sd(x, na.rm = TRUE)
+  cat("Mean for column:", mean_x, "Standard deviation for column:", std_x, "Steepness:", alpha, "\n")
+
+  val <- 2 / (1 + exp(-alpha * (x - mean_x) / std_x))
+  # clamp to [0,2]
+  val[val < 0] <- 0
+  val[val > 2] <- 2
+  return(val)
+}
+
+#######################################
+
+# Load the CSV file
+file_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/genotypes_1000_Original.csv"
+data <- read.csv(file_path, header = TRUE)
+
+# Compute and print means and standard deviations for each column
+column_means <- colMeans(data, na.rm = TRUE)
+column_sds <- apply(data, 2, sd, na.rm = TRUE)
+
+cat("Column-wise Means:\n")
+print(column_means)
+cat("Column-wise Standard Deviations:\n")
+print(column_sds)
+
+# Apply transformations with different steepness levels
+alpha_values <- c(0.4, 0.5, 0.6, 0.7)  # Different steepness levels
+transformed_data_list <- list()
+
+for (alpha in alpha_values) {
+  transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]] <- data %>% mutate(across(everything(), ~scaled_sigmoid(.x, alpha)))
+  write.csv(
+    transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]],
+    paste0(
+      "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_scaled_sigmoid_alpha_",
+      alpha,
+      ".csv"
+    ),
+    row.names = FALSE
+  )
+}
+
+# Apply standard transformations
+data_sigmoid_0_2 <- data %>% mutate(across(everything(), sigmoid_0_2))
+data_simple_sigmoid <- data %>% mutate(across(everything(), simple_sigmoid))
+
+# Save the standard transformed data
+write.csv(
+  data_sigmoid_0_2,
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_sigmoid_0_2.csv",
+  row.names = FALSE
+)
+write.csv(
+  data_simple_sigmoid,
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_simple_sigmoid.csv",
+  row.names = FALSE
+)
+
+########################################
+# PLOT EACH HISTOGRAM IN ITS OWN FIGURE
+########################################
+
+# 1) Original distribution
+par(mar = c(4, 4, 2, 1))
+hist(
+  as.vector(as.matrix(data)),
+  breaks = 50,
+  main = "Original Distribution",
+  xlab = "Values",
+  col = "blue"
+)
+
+# 2) Simple Sigmoid
+par(mar = c(4, 4, 2, 1))
+hist(
+  as.vector(as.matrix(data_simple_sigmoid)),
+  breaks = 50,
+  main = "Simple Sigmoid Transformation",
+  xlab = "Transformed Values",
+  col = "green"
+)
+
+# 3) Sigmoid [0,2]
+par(mar = c(4, 4, 2, 1))
+hist(
+  as.vector(as.matrix(data_sigmoid_0_2)),
+  breaks = 50,
+  main = "Sigmoid 0-2 Transformation",
+  xlab = "Transformed Values",
+  col = "red"
+)
+
+
+
+# 4) Scaled Sigmoid with different alpha values
+for (alpha in alpha_values) {
+  par(mar = c(4, 4, 2, 1))
+  hist(
+    as.vector(as.matrix(transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]])),
+    breaks = 50,
+    main = paste("Scaled Sigmoid Transformation (alpha =", alpha, ")"),
+    xlab = "Transformed Values",
+    col = "purple"
+  )
+}
+
+cat("\nTransformation complete. Transformed data saved. Each histogram is displayed in its own figure.\n")
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# If you're in an interactive notebook (e.g., Jupyter or R Markdown), you can adjust
+# the plotting area to prevent 'figure margins too large' errors.
+options(repr.plot.width=7, repr.plot.height=5)
+
+#######################################
+# Sigmoid 0-2 Transformation Functions
+#######################################
+
+# 1) Standard sigmoid transformation (0 -> 2)
+sigmoid_0_2 <- function(x) {
+  mean_x <- mean(x, na.rm = TRUE)
+  std_x <- sd(x, na.rm = TRUE)
+  cat("Mean for column:", mean_x, "Standard deviation for column:", std_x, "\n")
+  # compute logistic value
+  val <- 2 / (1 + exp(-(x - mean_x) / std_x))
+  # clamp to [0,2] just in case of floating point issues
+  #val[val < 0] <- 0
+  #val[val > 2] <- 2
+  return(val)
+}
+
+# 2) Simple sigmoid function mapping to [0,2]
+simple_sigmoid <- function(x) {
+  val <- 2 / (1 + exp(-x))
+  # clamp to [0,2]
+  #val[val < 0] <- 0
+  #val[val > 2] <- 2
+  return(val)
+}
+
+# 3) Sigmoid with tunable steepness parameter, also clamped to [0,2]
+scaled_sigmoid <- function(x, alpha) {
+  mean_x <- mean(x, na.rm = TRUE)
+  std_x <- sd(x, na.rm = TRUE)
+  cat("Mean for column:", mean_x, "Standard deviation for column:", std_x, "Steepness:", alpha, "\n")
+
+  val <- 2 / (1 + exp(-alpha * (x - mean_x) / std_x))
+  # clamp to [0,2]
+  #val[val < 0] <- 0
+  #val[val > 2] <- 2
+  return(val)
+}
+
+#######################################
+
+# Load the CSV file
+file_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/genotypes_1000_Original.csv"
+data <- read.csv(file_path, header = TRUE)
+
+# Compute and print means and standard deviations for each column
+column_means <- colMeans(data, na.rm = TRUE)
+column_sds <- apply(data, 2, sd, na.rm = TRUE)
+
+cat("Column-wise Means:\n")
+print(column_means)
+cat("Column-wise Standard Deviations:\n")
+print(column_sds)
+
+# We will compute uniform bin edges from the original data
+orig_vector <- as.vector(as.matrix(data))
+# Grab the bin edges from a 50-bin histogram on the original data
+bin_edges <- hist(orig_vector, breaks=50, plot=FALSE)$breaks
+
+# Apply transformations with different steepness levels
+alpha_values <- c(0.85, 0.9, 0.95, 1)  
+transformed_data_list <- list()
+
+for (alpha in alpha_values) {
+  transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]] <- data %>% mutate(across(everything(), ~scaled_sigmoid(.x, alpha)))
+  write.csv(
+    transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]],
+    paste0(
+      "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_scaled_sigmoid_alpha_",
+      alpha,
+      ".csv"
+    ),
+    row.names = FALSE
+  )
+}
+
+# Apply standard transformations
+data_sigmoid_0_2 <- data %>% mutate(across(everything(), sigmoid_0_2))
+data_simple_sigmoid <- data %>% mutate(across(everything(), simple_sigmoid))
+
+# Save the standard transformed data
+write.csv(
+  data_sigmoid_0_2,
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_sigmoid_0_2.csv",
+  row.names = FALSE
+)
+write.csv(
+  data_simple_sigmoid,
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/transformed_data_simple_sigmoid.csv",
+  row.names = FALSE
+)
+
+########################################
+# PLOT EACH HISTOGRAM IN ITS OWN FIGURE
+########################################
+
+# 1) Original distribution
+par(mar = c(4, 4, 2, 1))
+hist(
+  orig_vector,
+  breaks = bin_edges,
+  main = "Original Distribution",
+  xlab = "Values",
+  col = "blue"
+)
+
+# 2) Sigmoid [0,2]
+par(mar = c(4, 4, 2, 1))
+hist(
+  as.vector(as.matrix(data_sigmoid_0_2)),
+  breaks = bin_edges,  # same breaks
+  main = "Sigmoid 0-2 Transformation",
+  xlab = "Transformed Values",
+  col = "red"
+)
+
+# 3) Simple Sigmoid
+par(mar = c(4, 4, 2, 1))
+hist(
+  as.vector(as.matrix(data_simple_sigmoid)),
+  breaks = bin_edges,  # same breaks
+  main = "Simple Sigmoid Transformation",
+  xlab = "Transformed Values",
+  col = "green"
+)
+
+# 4) Scaled Sigmoid with different alpha values
+for (alpha in alpha_values) {
+  par(mar = c(4, 4, 2, 1))
+  hist(
+    as.vector(as.matrix(transformed_data_list[[paste0("scaled_sigmoid_alpha_", alpha)]])),
+    breaks = bin_edges,  # same breaks
+    main = paste("Scaled Sigmoid Transformation (alpha =", alpha, ")"),
+    xlab = "Transformed Values",
+    col = "purple"
+  )
+}
+
+cat("\nTransformation complete. Transformed data saved. Each histogram is displayed in its own figure with uniform bin width.\n")
+
+```
+
+# Extract the genetic values to enter them in PSoup
+
+```{r}
+
+# Extract the genetic values from basePop
+genetic_values <- basePop@gv
+
+# Convert to a data frame (if it's not already)
+genetic_values_df <- as.data.frame(genetic_values)
+
+# Write the original data frame to a CSV file (for reference)
+write.csv(genetic_values_df, "genotypes_1000_Original.csv", row.names = FALSE)
+
+# Create a copy of the data frame for modifications
+genetic_values_df_1 <- genetic_values_df
+
+# Replace negative values with 0 in the copied data frame
+genetic_values_df_1[genetic_values_df_1 < 0] <- 0
+
+# Write the modified data frame to a new CSV file
+write.csv(genetic_values_df_1, "genotypes_1000.csv", row.names = FALSE)
+
+
+```
+
+# Change the genetic values depending what you want to test
+
+```{r}
+generate_modified_csvs <- function(file_path, output_prefix, modifications, variable_col = NULL, variable_values = NULL) {
+  # Load the CSV file
+  df <- read.csv(file_path, stringsAsFactors = FALSE)
+  
+  # Modify fixed columns
+  for (col in names(modifications)) {
+    if (col %in% colnames(df)) {
+      df[[col]] <- modifications[[col]]
+    } else {
+      warning(paste("Column", col, "not found in the dataset."))
+    }
+  }
+  
+  # If no variable_col is given, create only one file
+  if (is.null(variable_col) || is.null(variable_values)) {
+    output_path <- paste0(output_prefix, "_modified.csv")
+    write.csv(df, output_path, row.names = FALSE)
+    cat("Modified dataset saved to:", output_path, "\n")
+    return(df)
+  }
+  
+  # Create multiple CSVs with different values of the variable_col
+  for (value in variable_values) {
+    temp_df <- df
+    if (variable_col %in% colnames(temp_df)) {
+      temp_df[[variable_col]] <- value
+    } else {
+      warning(paste("Column", variable_col, "not found in the dataset. Skipping modification."))
+    }
+    
+    # Define the output file name
+    output_path <- paste0(output_prefix, "_", variable_col, "_", value, ".csv")
+    write.csv(temp_df, output_path, row.names = FALSE)
+    cat("Generated:", output_path, "\n")
+  }
+  
+  return(df)
+}
+
+# Example Usage
+file_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/genotypes_1000_Original.csv"   
+output_prefix <- "Fixed_O" # Base name for output files
+
+# Define fixed modifications
+modifications <- list(
+  "PIN_1_3_4_7_n" = 1 , "Aux_Bud_n" = 1, "GA_n" = 1, "Decap_signal_n" = 1,
+  "CXE_n" = 1, "SMXL6_7_8_n" = 1, "FHY3_FAR1_n" = 1, "SPL9_15_n" = 1, "MAX2_n" = 1,
+  "D14_n" = 1, "D27_n" = 1, "MAX3_n" = 1, "MAX4_n" = 1, "MAX1_n" = 1,
+  "LBO_n" = 1, "CLAMT_n" = 1, "PhyB_n" = 1, "PIFs_n" = 1, "HB21_40_53_n" = 1,
+  "NCED3_n" = 1 , "Perception_SL_n" = 1, "ABA_n" = 1
+)
+
+# Define a variable column and values (optional)
+variable_col <- "SUC_n" # Column to vary
+variable_values <- c(0.2, 1, 2) # Values for SUC_n
+
+# Run the function to generate multiple CSVs
+generate_modified_csvs(file_path, output_prefix, modifications, variable_col, variable_values)
+
+# If you only want one CSV without variable changes, just omit the last two arguments:
+# generate_modified_csvs(file_path, output_prefix, modifications)
+
+
+```
+
+```{r}
+generate_modified_csvs <- function(file_path, output_prefix, modifications, variable_col = NULL, variable_values = NULL) {
+  # Load the CSV file
+  df <- read.csv(file_path, stringsAsFactors = FALSE)
+  
+  # Modify fixed columns
+  for (col in names(modifications)) {
+    if (col %in% colnames(df)) {
+      df[[col]] <- modifications[[col]]
+    } else {
+      warning(paste("Column", col, "not found in the dataset."))
+    }
+  }
+  
+  # If no variable_col is given, create only one file
+  if (is.null(variable_col) || is.null(variable_values)) {
+    output_path <- paste0(output_prefix, "_modified.csv")
+    write.csv(df, output_path, row.names = FALSE)
+    cat("Modified dataset saved to:", output_path, "\n")
+    return(df)
+  }
+  
+  # Create multiple CSVs with different values of the variable_col
+  for (value in variable_values) {
+    temp_df <- df
+    if (variable_col %in% colnames(temp_df)) {
+      temp_df[[variable_col]] <- value
+    } else {
+      warning(paste("Column", variable_col, "not found in the dataset. Skipping modification."))
+    }
+    
+    # Define the output file name
+    output_path <- paste0(output_prefix, "_", variable_col, "_", value, ".csv")
+    write.csv(temp_df, output_path, row.names = FALSE)
+    cat("Generated:", output_path, "\n")
+  }
+  
+  return(df)
+}
+
+# Example Usage
+file_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/genotypes_1000_Original.csv"   # Replace with your actual file path
+output_prefix <- "modified_data_MLO_" # Base name for output files
+
+# Define fixed modifications
+modifications <- list(
+  "BRC1_2_n" = 0
+)
+
+# Define a variable column and values (optional)
+variable_col <- "SUC_n" # Column to vary
+variable_values <- c(0.5, 1, 1.5) # Values for SUC_n
+
+# Run the function to generate multiple CSVs
+generate_modified_csvs(file_path, output_prefix, modifications, variable_col, variable_values)
+
+# If you only want one CSV without variable changes, just omit the last two arguments:
+# generate_modified_csvs(file_path, output_prefix, modifications)
+
+
+```
+
+$$
+\Huge a_{modifier} = \sum_{i=1}^{10} u_{modifier_i}
+$$ $$
+\Huge 0 \leq a_{modifier} = \sum_{i=1}^{10} u_{modifier_i} \leq 2
+$$ Example: Now, $a_{SL}$ is defined by the QTL values.
+
+$$
+\Huge SL = \frac{2}{1 + CXE} \cdot a_{SL} \cdot LBO
+$$
+
+$$
+\Huge y_{\text{Sustained_growth}} = Next step function=  F(\text{Node}_1, \text{Node}_2, \dots, \text{Node}_n)
+$$
+
+### Now we have Genetic and phenotypic values coming from PSoup network
+
+# Scenarios
+
+1.  Random population changing every gene
+
+2.  Fixed population for the 23 genes from the 27. I changed only 4 genes AUX,CK,SL,BRC1 and all these in different sucrose levels.
+
+3.  brc1 mutant and over expression of BRC1 in different sucrose levels
+
+I will share some observations that they agree with the sensitivity analysis.
+
+# Secanrio 1: Alternate all the genes in the population
+
+## All the individuals in the population
+
+### Observations: is that CK in this particular network has the biggest influence. This is evident in the plot as well. The others not have that strong effect in sustained growth. It agrees with the sensitivity analysis Sobol. For example decapitation, GA also have strong effect and it is visible.
+
+```{r echo=FALSE}
+
+# Load necessary library
+library(plotly)
+
+# --- Load phenotype data from CSV ---
+csv_path <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000.csv"
+phenotype_data <- read.csv(csv_path, header = TRUE, stringsAsFactors = FALSE)
+phenotype <- phenotype_data[ , "Sustained_growth"]  # adjust the column name if needed
+
+# --- Extract genetic values ---
+# Get the complete genetic values matrix from basePop (all 26 traits)
+genetic_matrix <- genetic_values_df
+
+# Check that the row counts match between genetic_matrix and phenotype
+if(nrow(genetic_matrix) != length(phenotype)) {
+  stop("Mismatch in row counts between genetic values and phenotype data!")
+}
+
+# --- Prepare tooltip text (same for all plots) ---
+# This creates a tooltip string for each row containing all trait values
+tooltip <- apply(genetic_matrix, 1, function(row) {
+  paste(names(row), round(row, 3), sep=": ", collapse="<br>")
+})
+
+# --- Create interactive plots for all genes ---
+# We'll store the plots in a list, one plot per gene column.
+plots <- list()
+for (gene in colnames(genetic_matrix)) {
+  # Extract the genetic values for the current gene
+  genetic_values <- genetic_matrix[, gene]
+  
+  # Create a data frame for plotting
+  plot_data <- data.frame(
+    GeneticValue = genetic_values,
+    Phenotype = phenotype,
+    Tooltip = tooltip,
+    stringsAsFactors = FALSE
+  )
+  
+  # Create the interactive plot using plotly
+  p <- plot_ly(plot_data,
+               x = ~GeneticValue,
+               y = ~Phenotype,
+               type = 'scatter',
+               mode = 'markers',
+               text = ~Tooltip,    # Tooltip shows all row values
+               hoverinfo = 'text'  # Only show the text on hover
+  ) %>%
+    layout(title = paste( gene, "vs Phenotype (Sustained Growth)"),
+           xaxis = list(title = paste("GV (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)"))
+  
+  # Store the plot in the list
+  plots[[gene]] <- p
+}
+
+# Display all plots (each element of 'plots' is an interactive plot)
+plots
+```
+
+# Scenario 2: Alternate AUX,CK,SL,BRC1
+
+# All the population
+
+### Observations: Strange that we do not see this effect when i fixate most of the genes. We were expecting stronger effect. I will need to revise the data for possible mistakes.However, the sensitivity shows high total variance which means that interacts with many others to have this effect. Maybe this is a possible explanation.
+
+```{r}
+# Load required library
+library(plotly)
+
+## ---------------------------
+## 1. Read Phenotype Data for Three Sucrose Levels
+## ---------------------------
+csv_phe1 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_0.2.csv"
+csv_phe2 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_1.csv"
+csv_phe3 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_2.csv"
+
+phenotype_data1 <- read.csv(csv_phe1, header = TRUE, stringsAsFactors = FALSE)
+phenotype_data2 <- read.csv(csv_phe2, header = TRUE, stringsAsFactors = FALSE)
+phenotype_data3 <- read.csv(csv_phe3, header = TRUE, stringsAsFactors = FALSE)
+
+# Extract the phenotype column (adjust the column name if needed)
+pheno1 <- phenotype_data1[["Sustained_growth"]]
+pheno2 <- phenotype_data2[["Sustained_growth"]]
+pheno3 <- phenotype_data3[["Sustained_growth"]]
+
+## ---------------------------
+## 2. Read Genotype Data for Three Sucrose Levels
+## ---------------------------
+csv_gen1 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_0.2.csv"
+csv_gen2 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_1.csv"
+csv_gen3 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_2.csv"
+
+genotype_data1 <- read.csv(csv_gen1, header = TRUE, stringsAsFactors = FALSE)
+genotype_data2 <- read.csv(csv_gen2, header = TRUE, stringsAsFactors = FALSE)
+genotype_data3 <- read.csv(csv_gen3, header = TRUE, stringsAsFactors = FALSE)
+
+## ---------------------------
+## 3. Validate Dimensions
+## ---------------------------
+if(nrow(genotype_data1) != length(pheno1)) {
+  stop("Mismatch in rows between genotype_data1 and phenotype_data1!")
+}
+if(nrow(genotype_data2) != length(pheno2)) {
+  stop("Mismatch in rows between genotype_data2 and phenotype_data2!")
+}
+if(nrow(genotype_data3) != length(pheno3)) {
+  stop("Mismatch in rows between genotype_data3 and phenotype_data3!")
+}
+
+## ---------------------------
+## 4. Create Tooltip Text for Each Row
+## ---------------------------
+make_tooltip <- function(row) {
+  paste(names(row), round(as.numeric(row), 3), sep = ": ", collapse = "<br>")
+}
+
+tooltip1 <- apply(genotype_data1, 1, make_tooltip)
+tooltip2 <- apply(genotype_data2, 1, make_tooltip)
+tooltip3 <- apply(genotype_data3, 1, make_tooltip)
+
+## ---------------------------
+## 5. Global Y-axis Limits (Optional)
+## ---------------------------
+y_min <- min(c(pheno1, pheno2, pheno3), na.rm = TRUE)
+y_max <- max(c(pheno1, pheno2, pheno3), na.rm = TRUE)
+
+## ---------------------------
+## 6. Create Interactive Subplots for Each Gene
+## ---------------------------
+# List to store the final subplot for each gene
+all_gene_plots <- list()
+
+# Sucrose levels for display titles and corresponding trace names
+sucrose_levels <- c("0.2", "1", "2")
+trace_names <- c("Low suc", "WT suc", "High suc")
+
+# Use the gene names (columns) from the first genotype dataset
+gene_names <- colnames(genotype_data1)
+
+for(gene in gene_names) {
+  
+  # Extract genotype values for this gene at each sucrose level
+  gen_vals1 <- genotype_data1[[gene]]
+  gen_vals2 <- genotype_data2[[gene]]
+  gen_vals3 <- genotype_data3[[gene]]
+  
+  # Build data frames for each sucrose level
+  df1 <- data.frame(GeneticValue = gen_vals1, Phenotype = pheno1, Tooltip = tooltip1, stringsAsFactors = FALSE)
+  df2 <- data.frame(GeneticValue = gen_vals2, Phenotype = pheno2, Tooltip = tooltip2, stringsAsFactors = FALSE)
+  df3 <- data.frame(GeneticValue = gen_vals3, Phenotype = pheno3, Tooltip = tooltip3, stringsAsFactors = FALSE)
+  
+  # Create three scatter plots, one for each sucrose level, and set the custom trace name
+  p1 <- plot_ly(df1,
+                x = ~GeneticValue,
+                y = ~Phenotype,
+                type = 'scatter',
+                mode = 'markers',
+                name = trace_names[1],
+                text = ~Tooltip,
+                hoverinfo = 'text'
+                ) %>%
+         layout(
+           title = paste("Sucrose =", sucrose_levels[1]),
+           xaxis = list(title = paste("GV (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)", range = c(y_min, y_max))
+         )
+  
+  p2 <- plot_ly(df2,
+                x = ~GeneticValue,
+                y = ~Phenotype,
+                type = 'scatter',
+                mode = 'markers',
+                name = trace_names[2],
+                text = ~Tooltip,
+                hoverinfo = 'text'
+                ) %>%
+         layout(
+           title = paste("Sucrose =", sucrose_levels[2]),
+           xaxis = list(title = paste("GV (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)", range = c(y_min, y_max))
+         )
+  
+  p3 <- plot_ly(df3,
+                x = ~GeneticValue,
+                y = ~Phenotype,
+                type = 'scatter',
+                mode = 'markers',
+                name = trace_names[3],
+                text = ~Tooltip,
+                hoverinfo = 'text'
+                ) %>%
+         layout(
+           title = paste("Sucrose =", sucrose_levels[3]),
+           xaxis = list(title = paste("GV (", gene, ")", sep="")),
+           yaxis = list(title = "Phenotype (Sustained Growth)", range = c(y_min, y_max))
+         )
+  
+  # Combine the three plots into one row (3 panels side-by-side)
+  combined_plot <- subplot(
+    p1, p2, p3,
+    nrows = 1,
+    margin = 0.05,
+    shareY = TRUE,
+    titleX = TRUE,
+    titleY = TRUE
+  ) %>%
+  layout(
+    title = paste("Gene:", gene),
+    margin = list(l = 100, r = 100, t = 100, b = 60)
+  )
+  
+  # Save the combined plot for this gene in the list
+  all_gene_plots[[gene]] <- combined_plot
+}
+
+## ---------------------------
+## 7. Display the Plots
+## ---------------------------
+all_gene_plots
+```
+
+# Representation of only 10 genotypes
+
+```{r}
+# Load required library
+library(plotly)
+
+## ---------------------------
+## 1. Read Phenotype Data for Three Sucrose Levels (Overexpression Group)
+## ---------------------------
+csv_phe1 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_0.2.csv"
+csv_phe2 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_1.csv"
+csv_phe3 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_Fixed_2.csv"
+
+phenotype_data1 <- read.csv(csv_phe1, header = TRUE, stringsAsFactors = FALSE)
+phenotype_data2 <- read.csv(csv_phe2, header = TRUE, stringsAsFactors = FALSE)
+phenotype_data3 <- read.csv(csv_phe3, header = TRUE, stringsAsFactors = FALSE)
+
+# Extract the phenotype column ("Sustained_growth"); adjust if necessary
+pheno1 <- phenotype_data1[["Sustained_growth"]]
+pheno2 <- phenotype_data2[["Sustained_growth"]]
+pheno3 <- phenotype_data3[["Sustained_growth"]]
+
+## ---------------------------
+## 2. Read Genotype Data for Three Sucrose Levels (Overexpression Group)
+## ---------------------------
+csv_gen1 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_0.2.csv"
+csv_gen2 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_1.csv"
+csv_gen3 <- "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/Fixed_O_SUC_n_2.csv"
+
+genotype_data1 <- read.csv(csv_gen1, header = TRUE, stringsAsFactors = FALSE)
+genotype_data2 <- read.csv(csv_gen2, header = TRUE, stringsAsFactors = FALSE)
+genotype_data3 <- read.csv(csv_gen3, header = TRUE, stringsAsFactors = FALSE)
+
+## ---------------------------
+## 3. Validate Dimensions
+## ---------------------------
+if(nrow(genotype_data1) != length(pheno1)) stop("Mismatch in rows for sucrose level 0.2!")
+if(nrow(genotype_data2) != length(pheno2)) stop("Mismatch in rows for sucrose level 1!")
+if(nrow(genotype_data3) != length(pheno3)) stop("Mismatch in rows for sucrose level 2!")
+
+## ---------------------------
+## 4. Identify Top 10 Changing Genotypes
+## ---------------------------
+get_top_changing_genotypes <- function(phenotype_list) {
+  pheno_matrix <- do.call(cbind, phenotype_list)  # Combine into a matrix
+  changes <- rowSums(abs(diff(pheno_matrix, differences = 1)))  # Sum of absolute differences
+  top_indices <- order(changes, decreasing = TRUE)[1:10]  # Top 10 indices
+  return(top_indices)
+}
+# Use overexpression phenotype data to determine top genotypes
+top_genotype_indices <- get_top_changing_genotypes(list(pheno1, pheno2, pheno3))
+
+## ---------------------------
+## 5. Global Y-axis Limits
+## ---------------------------
+y_min <- min(c(pheno1, pheno2, pheno3), na.rm = TRUE)
+y_max <- max(c(pheno1, pheno2, pheno3), na.rm = TRUE)
+
+## ---------------------------
+## 6. Define Color and Symbol Palettes for 10 Genotypes
+## ---------------------------
+color_palette <- c("red", "blue", "green", "purple", "orange", "pink", "cyan", "brown", "magenta", "yellow")
+symbol_types <- c("circle", "square", "diamond", "cross", "x", "triangle-up", "triangle-down", "star", "hexagram", "pentagon")
+
+## ---------------------------
+## 7. Create Interactive 1x3 Subplots for Each Gene (Overexpression Group)
+## ---------------------------
+all_gene_plots <- list()
+# Sucrose levels for display titles and for trace names if needed
+sucrose_levels <- c("0.2", "1", "2")
+# Get gene names from the first genotype data file
+gene_names <- colnames(genotype_data1)
+
+for(gene in gene_names) {
+  
+  # List to store individual panel plots for current gene
+  panel_plots <- list()
+  
+  for(i in 1:3) {
+    # Select the appropriate genotype and phenotype data based on sucrose level
+    if(i == 1) {
+      gen_vals <- genotype_data1[[gene]]
+      pheno_vals <- pheno1
+      full_geno <- genotype_data1[top_genotype_indices, ]  # full rows for tooltip
+    } else if(i == 2) {
+      gen_vals <- genotype_data2[[gene]]
+      pheno_vals <- pheno2
+      full_geno <- genotype_data2[top_genotype_indices, ]
+    } else if(i == 3) {
+      gen_vals <- genotype_data3[[gene]]
+      pheno_vals <- pheno3
+      full_geno <- genotype_data3[top_genotype_indices, ]
+    }
+    
+    # Create a data frame with the one gene's values for the top 10 genotypes
+    df <- data.frame(
+      GeneticValue = gen_vals[top_genotype_indices],
+      Phenotype = pheno_vals[top_genotype_indices],
+      stringsAsFactors = FALSE
+    )
+    
+    # Create tooltips using the full genotype row (all gene values)
+    tooltip_text <- apply(full_geno, 1, function(row) {
+      paste(names(full_geno), round(as.numeric(row), 3), sep=": ", collapse="<br>")
+    })
+    
+    # Start a plotly object for this panel
+    p <- plot_ly()
+    
+    # Loop over the top 10 genotypes, adding each as a separate trace.
+    for(j in 1:10) {
+      p <- p %>%
+        add_trace(
+          x = df$GeneticValue[j],
+          y = df$Phenotype[j],
+          type = 'scatter',
+          mode = 'markers',
+          marker = list(
+            color = color_palette[j],
+            symbol = symbol_types[j],
+            size = 10
+          ),
+          # Set the trace name to the genotype row number
+          name = paste("Genotype", top_genotype_indices[j]),
+          hoverinfo = 'text',
+          text = tooltip_text[j]
+        )
+    }
+    
+    # Set x-axis and y-axis titles for the panel.
+    # (Here, each panel gets its own x-axis title; adjust if you want them only in the bottom row.)
+    p <- p %>%
+      layout(
+        title = paste("Sucrose =", sucrose_levels[i]),
+        xaxis = list(title = paste("GV (", gene, ")", sep = "")),
+        yaxis = list(title = "Sustained Growth", range = c(y_min, y_max))
+      )
+    
+    panel_plots[[i]] <- p
+  }
+  
+  # Combine the three panels into one subplot (1 row, 3 columns)
+  combined_plot <- subplot(
+    panel_plots,
+    nrows = 1,
+    margin = 0.05,
+    shareY = TRUE,
+    titleX = TRUE,
+    titleY = TRUE
+  ) %>%
+    layout(
+      title = paste("Gene:", gene),
+      margin = list(l = 60, r = 60, t = 80, b = 80)
+    )
+  
+  all_gene_plots[[gene]] <- combined_plot
+}
+
+## ---------------------------
+## 8. Display the Plots
+## ---------------------------
+all_gene_plots
+
+
+
+```
+
+# Scenario 3: BRC1 overexpression and Brc1 mutant across the same population.
+
+## All the population
+
+### Observations: When BRC1 is overexpressed you see an infulence of the CK driving the sustained growth, while when brc1 is knocked CK cannot drive as CK effecting the sustained growth via BRC1 as well. AUx is the same but in the different direction.
+
+```{r}
+# Load necessary libraries
+library(plotly)
+library(dplyr)
+
+### ---------------------------
+### 1. Load BRC1 Overexpression Data
+### ---------------------------
+# Phenotype data for overexpression
+csv_paths_brc1 <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_0.5_Brc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1_Brc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1.5_Brc1.csv"
+)
+phenotype_data_list_brc1 <- lapply(csv_paths_brc1, read.csv, header = TRUE, stringsAsFactors = FALSE)
+phenotype_list_brc1 <- lapply(phenotype_data_list_brc1, function(df) df[, "Sustained_growth"])
+
+# Genetic values data for overexpression
+genetic_paths_brc1 <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_0.5.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_1.5.csv"
+)
+genetic_values_list_brc1 <- lapply(genetic_paths_brc1, function(path) {
+  as.matrix(sapply(read.csv(path, header = TRUE), as.numeric))
+})
+
+### ---------------------------
+### 2. Load BRC1 Mutant Data
+### ---------------------------
+# Phenotype data for mutant
+csv_paths_mutant <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_0.5_MBrc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1_MBrc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1.5_MBrc1.csv"
+)
+phenotype_data_list_mutant <- lapply(csv_paths_mutant, read.csv, header = TRUE, stringsAsFactors = FALSE)
+phenotype_list_mutant <- lapply(phenotype_data_list_mutant, function(df) df[, "Sustained_growth"])
+
+# Genetic values data for mutant
+genetic_paths_mutant <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_0.5.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_1.5.csv"
+)
+genetic_values_list_mutant <- lapply(genetic_paths_mutant, function(path) {
+  as.matrix(sapply(read.csv(path, header = TRUE), as.numeric))
+})
+
+### ---------------------------
+### 3. Global Y-axis Limits
+### ---------------------------
+# (Not used since we're fixing the range manually; you could still compute them if needed.)
+# y_min <- min(c(unlist(phenotype_list_brc1), unlist(phenotype_list_mutant)), na.rm = TRUE)
+# y_max <- max(c(unlist(phenotype_list_brc1), unlist(phenotype_list_mutant)), na.rm = TRUE)
+
+### ---------------------------
+### 4. Create Interactive 3x2 Grid Plots Per Gene (All Genotypes)
+### ---------------------------
+all_gene_plots <- list()
+
+# Define colors for different sucrose levels
+color_palette <- c("red", "blue", "green")
+
+# Define symbols for BRC1 Overexpression vs. BRC1 Mutant
+symbol_types <- c("circle", "square")
+
+sucrose_levels <- c(0.5, 1, 1.5)
+
+# For each gene, build a grid with 3 rows (each sucrose level) and 2 columns (left: overexpression, right: mutant)
+for (gene in colnames(genetic_values_list_brc1[[1]])) {
+  
+  # List to store the 6 cell plots
+  cell_plots <- list()
+  
+  for (i in 1:3) {
+    ## --- Left Cell: BRC1 Overexpression ---
+    genetic_values_over <- genetic_values_list_brc1[[i]][, gene]
+    phenotype_over <- phenotype_list_brc1[[i]]
+    tooltip_over <- apply(genetic_values_list_brc1[[i]], 1, function(row) {
+      paste(names(row), round(row, 3), sep = ": ", collapse = "<br>")
+    })
+    
+    p_over <- plot_ly() %>%
+      add_trace(
+        x = genetic_values_over,
+        y = phenotype_over,
+        type = 'scatter',
+        mode = 'markers',
+        text = tooltip_over,
+        hoverinfo = 'text',
+        marker = list(
+          color = color_palette[i],  # Different color per sucrose level
+          symbol = symbol_types[1],  # Symbol for Overexpression
+          size = 6
+        ),
+        name = paste("Brc1 Over - Suc", sucrose_levels[i])
+      ) %>%
+      layout(
+        xaxis = list(title = if(i==3) paste("Genetic Value (", gene, ")", sep = "") else ""),
+        yaxis = list(title = "SG", range = c(0, 30))
+      )
+    
+    ## --- Right Cell: BRC1 Mutant ---
+    genetic_values_mut <- genetic_values_list_mutant[[i]][, gene]
+    phenotype_mut <- phenotype_list_mutant[[i]]
+    tooltip_mut <- apply(genetic_values_list_mutant[[i]], 1, function(row) {
+      paste(names(row), round(row, 3), sep = ": ", collapse = "<br>")
+    })
+    
+    p_mut <- plot_ly() %>%
+      add_trace(
+        x = genetic_values_mut,
+        y = phenotype_mut,
+        type = 'scatter',
+        mode = 'markers',
+        text = tooltip_mut,
+        hoverinfo = 'text',
+        marker = list(
+          color = color_palette[i],  # Same color for corresponding sucrose level
+          symbol = symbol_types[2],  # Different symbol for Mutant
+          size = 6
+        ),
+        name = paste("Brc1 Mutant - Suc", sucrose_levels[i])
+      ) %>%
+      layout(
+        xaxis = list(title = if(i==3) paste("GV (", gene, ")", sep = "") else ""),
+        yaxis = list(title = "SG", range = c(0, 30))
+      )
+    
+    # Append the left and right cells for the current row
+    cell_plots[[length(cell_plots) + 1]] <- p_over
+    cell_plots[[length(cell_plots) + 1]] <- p_mut
+  }
+  
+  # Combine the 6 cell plots into a 3-row, 2-column grid.
+  combined_gene_plot <- subplot(
+    cell_plots,
+    nrows = 3,
+    margin = 0.05,
+    shareX = FALSE,
+    shareY = TRUE,
+    titleX = FALSE,
+    titleY = TRUE
+  ) %>%
+    layout(
+      title = paste(gene, "and BRC1 Overexpression-Mutant"),
+      legend = list(orientation = "h"),
+      yaxis = list(title = "SG", range = c(0, 30))  # Fixed y-axis for all subplots
+    )
+  
+  all_gene_plots[[gene]] <- combined_gene_plot
+}
+
+# Display all plots
+all_gene_plots
+```
+
+## 10 genotypes only
+
+```{r}
+# Load necessary libraries
+library(plotly)
+library(dplyr)
+
+### ---------------------------
+### 1. Load BRC1 Overexpression Data
+### ---------------------------
+# Phenotype data for overexpression
+csv_paths_brc1 <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_0.5_Brc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1_Brc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1.5_Brc1.csv"
+)
+phenotype_data_list_brc1 <- lapply(csv_paths_brc1, read.csv, header = TRUE, stringsAsFactors = FALSE)
+phenotype_list_brc1 <- lapply(phenotype_data_list_brc1, function(df) df[, "Sustained_growth"])
+
+# Genetic values data for overexpression
+genetic_paths_brc1 <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_0.5.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_Or_SUC_n_1.5.csv"
+)
+genetic_values_list_brc1 <- lapply(genetic_paths_brc1, function(path) {
+  as.matrix(sapply(read.csv(path, header = TRUE), as.numeric))
+})
+
+### ---------------------------
+### 2. Load BRC1 Mutant Data
+### ---------------------------
+# Phenotype data for mutant
+csv_paths_mutant <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_0.5_MBrc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1_MBrc1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_1.5_MBrc1.csv"
+)
+phenotype_data_list_mutant <- lapply(csv_paths_mutant, read.csv, header = TRUE, stringsAsFactors = FALSE)
+phenotype_list_mutant <- lapply(phenotype_data_list_mutant, function(df) df[, "Sustained_growth"])
+
+# Genetic values data for mutant
+genetic_paths_mutant <- c(
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_0.5.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_1.csv",
+  "C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/modified_data_MLO__SUC_n_1.5.csv"
+)
+genetic_values_list_mutant <- lapply(genetic_paths_mutant, function(path) {
+  as.matrix(sapply(read.csv(path, header = TRUE), as.numeric))
+})
+
+### ---------------------------
+### 3. Ensure Dimensions Match
+### ---------------------------
+for (i in 1:3) {
+  if (nrow(genetic_values_list_brc1[[i]]) != length(phenotype_list_brc1[[i]])) {
+    stop(paste("Mismatch in rows for BRC1 overexpression at sucrose level", i))
+  }
+  if (nrow(genetic_values_list_mutant[[i]]) != length(phenotype_list_mutant[[i]])) {
+    stop(paste("Mismatch in rows for BRC1 mutant at sucrose level", i))
+  }
+}
+
+### ---------------------------
+### 4. Identify Top 10 Changing Genotypes
+### ---------------------------
+get_top_changing_genotypes <- function(phenotype_list) {
+  pheno_matrix <- do.call(cbind, phenotype_list)  # Combine into a matrix
+  changes <- rowSums(abs(diff(pheno_matrix, differences = 1)))  # Compute total changes
+  top_indices <- order(changes, decreasing = TRUE)[1:10]  # Get top 10 genotypes
+  return(top_indices)
+}
+# Use the overexpression data to determine the top genotypes
+top_genotype_indices <- get_top_changing_genotypes(phenotype_list_brc1)
+
+### ---------------------------
+### 5. Global Y-axis Limits
+### ---------------------------
+y_min <- min(c(unlist(phenotype_list_brc1), unlist(phenotype_list_mutant)), na.rm = TRUE)
+y_max <- max(c(unlist(phenotype_list_brc1), unlist(phenotype_list_mutant)), na.rm = TRUE)
+
+### ---------------------------
+### 6. Create Interactive 3x2 Grid Plots Per Gene
+### ---------------------------
+all_gene_plots <- list()
+color_palette <- c("red", "blue", "green", "purple", "orange", "pink", "cyan", "brown", "magenta", "yellow")
+symbol_types <- c("circle", "square", "diamond", "cross", "x", "triangle-up", "triangle-down", "star", "hexagram", "pentagon")
+sucrose_levels <- c(0.5, 1, 1.5)
+
+# For each gene, build a grid with 3 rows (each sucrose level) and 2 columns (left: overexpression, right: mutant)
+for (gene in colnames(genetic_values_list_brc1[[1]])) {
+  
+  # List to store the 6 cell plots
+  cell_plots <- list()
+  
+  for (i in 1:3) {
+    ## --- Left Cell: BRC1 Overexpression ---
+    genetic_values_over <- genetic_values_list_brc1[[i]][top_genotype_indices, gene]
+    phenotype_over <- phenotype_list_brc1[[i]][top_genotype_indices]
+    tooltip_over <- apply(genetic_values_list_brc1[[i]][top_genotype_indices, ], 1, function(row) {
+      paste(names(row), round(row, 3), sep = ": ", collapse = "<br>")
+    })
+    p_over <- plot_ly()
+    for (j in 1:10) {
+      p_over <- p_over %>%
+        add_trace(
+          x = genetic_values_over[j],
+          y = phenotype_over[j],
+          type = 'scatter',
+          mode = 'markers',
+          text = tooltip_over[j],
+          hoverinfo = 'text',
+          marker = list(
+            color = color_palette[j],
+            symbol = symbol_types[j],
+            size = 10
+          ),
+          name = paste("Genotype", top_genotype_indices[j])
+        )
+    }
+    # For overexpression: add y-axis title in each cell.
+    # Add x-axis title only for the bottom row (i==3).
+    xaxis_title_over <- if (i == 3) paste("GV (", gene, ")", sep = "") else ""
+    p_over <- p_over %>%
+      layout(
+        title = "",
+        xaxis = list(title = xaxis_title_over),
+        yaxis = list(title = "SG", range = c(y_min, y_max))
+      )
+    
+    ## --- Right Cell: BRC1 Mutant ---
+    genetic_values_mut <- genetic_values_list_mutant[[i]][top_genotype_indices, gene]
+    phenotype_mut <- phenotype_list_mutant[[i]][top_genotype_indices]
+    tooltip_mut <- apply(genetic_values_list_mutant[[i]][top_genotype_indices, ], 1, function(row) {
+      paste(names(row), round(row, 3), sep = ": ", collapse = "<br>")
+    })
+    p_mut <- plot_ly()
+    for (j in 1:10) {
+      p_mut <- p_mut %>%
+        add_trace(
+          x = genetic_values_mut[j],
+          y = phenotype_mut[j],
+          type = 'scatter',
+          mode = 'markers',
+          text = tooltip_mut[j],
+          hoverinfo = 'text',
+          marker = list(
+            color = color_palette[j],
+            symbol = symbol_types[j],
+            size = 10
+          ),
+          name = paste("Genotype", top_genotype_indices[j])
+        )
+    }
+    xaxis_title_mut <- if (i == 3) paste("GV (", gene, ")", sep = "") else ""
+    p_mut <- p_mut %>%
+      layout(
+        title = "",
+        xaxis = list(title = xaxis_title_mut),
+        yaxis = list(title = "SG", range = c(y_min, y_max))
+      )
+    
+    # Append the left and right cells for the current row
+    cell_plots[[length(cell_plots) + 1]] <- p_over
+    cell_plots[[length(cell_plots) + 1]] <- p_mut
+  }
+  
+  # Combine the 6 cell plots into a 3-row, 2-column grid.
+combined_gene_plot <- subplot(
+  cell_plots,
+  nrows = 3,
+  margin = 0.05,
+  shareX = FALSE,
+  shareY = FALSE,
+  titleX = TRUE,
+  titleY = TRUE
+)
+
+# Adjust the margins (left, right, top, bottom)
+# Increase them so your annotations don't get cut off.
+combined_gene_plot <- combined_gene_plot %>%
+  layout(
+    margin = list(l = 150, r = 80, t = 100, b = 120),
+    annotations = list(
+      # Column titles (positioned above each column)
+      list(x = 0.10, y = 1.12, xref = "paper", yref = "paper",
+           text = "BRC1 Overexpression", showarrow = FALSE,
+           font = list(size = 14)),
+      list(x = 0.85, y = 1.12, xref = "paper", yref = "paper",
+           text = "BRC1 Mutant", showarrow = FALSE,
+           font = list(size = 14)),
+
+      # Row titles (positioned on the left side of each row)
+      list(x = -0.1, y = 0.85, xref = "paper", yref = "paper",
+           text = "low suc", showarrow = FALSE,
+           font = list(size = 14), xanchor = "right"),
+      list(x = -0.1, y = 0.5, xref = "paper", yref = "paper",
+           text = "WT suc", showarrow = FALSE,
+           font = list(size = 14), xanchor = "right"),
+      list(x = -0.1, y = 0.15, xref = "paper", yref = "paper",
+           text = "high suc", showarrow = FALSE,
+           font = list(size = 14), xanchor = "right")
+    )
+  )
+
+  
+  all_gene_plots[[gene]] <- combined_gene_plot
+}
+
+# Display all plots (each element of 'all_gene_plots' is a 3x2 interactive subplot for one gene)
+all_gene_plots
+
+```
+
+```         
+```
+
+# Overall what network and what granularity are you going to use is very important.
+
+## Load the genotypic values
+
+```{r}
+# Load the CSV file into a data frame
+
+genetic_values_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/genotypes_1000_Original.csv", header = TRUE)
+
+# Optionally, inspect the data frame
+#str(genetic_values_df)
+
+# This ensures that each column is numeric
+genetic_values_matrix <- as.matrix(sapply(genetic_values_df, as.numeric))
+
+# Assign the numeric matrix to the gv slot of basePop
+basePop@gv <- genetic_values_matrix
+
+
+```
+
+## Load the Phenotypes coming from PSoup
+
+```{r}
+
+# Read the CSV file and set the first column as row names (if it contains row labels)
+pheno_df <- read.csv("C:/Users/uqcmitsa/OneDrive - The University of Queensland/Desktop/PhD/PSoup_Genomic_DataSet/PSoup_Genomic_DataSet/R_1000_L.csv",
+                     header = TRUE,)
+
+# Convert the data frame to a matrix
+pheno_matrix <- as.matrix(pheno_df)
+
+# Inspect the matrix to check its form
+#print(pheno_matrix)
+
+# Overwrite the phenotypes in basePop with the matrix
+basePop@pheno <- pheno_matrix
+pheno <- pheno_matrix
+
+```
+
+```{r, fig.width=12, fig.height=6, out.width="100%"}
+# Set up a 1-row, 2-column plotting area
+par(mfrow = c(1, 2), mar = c(5, 5, 4, 2) + 0.1, oma = c(1, 1, 1, 1))
+
+# --- Genotype Histogram ---
+genotypes <- gv(basePop)
+breaks_geno <- seq(min(genotypes), max(genotypes) + 0.1, by = 0.1)
+
+hist(genotypes,
+     breaks = breaks_geno,
+     main = "Histogram of Genotype Values",
+     xlab = "Genotype",
+     col = "gray",
+     border = "black",
+     include.lowest = TRUE,
+     cex.main = 1.5,
+     cex.lab = 1.3,
+     cex.axis = 1.2)
+
+# --- Phenotype Histogram ---
+pheno <- as.numeric(pheno)
+pheno <- na.omit(pheno)
+pheno_filtered <- pheno[pheno >= -4]
+breaks_seq <- seq(-4, max(pheno_filtered) + 0.3, by = 0.3)
+
+hist(pheno_filtered,
+     breaks = breaks_seq,
+     main = "Log of Sustained Growth",
+     xlab = "Sustained Growth",
+     col = "gray",
+     border = "black",
+     include.lowest = TRUE,
+     cex.main = 1.5,
+     cex.lab = 1.3,
+     cex.axis = 1.2)
+
+# Reset to default single panel layout
+par(mfrow = c(1, 1))
+```
